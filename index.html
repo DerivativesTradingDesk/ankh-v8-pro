@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANKH V8: PRO COMMAND</title>
+    <style>
+        :root { --bg: #020202; --card: #0d0d0d; --accent: #00d4ff; --up: #00ff88; --down: #ff4444; --border: #1a1a1a; --text: #eee; }
+        body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; margin: 0; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+        header { background: #080808; border-bottom: 1px solid #222; padding: 10px 25px; display: flex; justify-content: space-between; align-items: center; }
+        .search-wrap { display: flex; gap: 8px; }
+        input { background: #151515; border: 1px solid #333; color: white; padding: 8px; border-radius: 4px; outline: none; }
+        button { background: var(--accent); color: black; border: none; padding: 8px 15px; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        main { display: grid; grid-template-columns: 320px 1fr 320px; gap: 12px; padding: 12px; flex: 1; overflow: hidden; }
+        .panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow-y: auto; }
+        .ticker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+        .ticker-card { background: #121212; border: 1px solid #222; padding: 10px; border-radius: 6px; cursor: pointer; }
+        .sym { font-size: 0.8rem; font-weight: 800; color: var(--accent); }
+        .price { font-size: 1.1rem; font-family: monospace; font-weight: bold; margin: 4px 0; }
+        .up { color: var(--up); } .down { color: var(--down); }
+        .ticker-bar { background: #080808; border-top: 1px solid #222; padding: 8px; white-space: nowrap; overflow: hidden; }
+        .ticker-text { display: inline-block; animation: scroll 50s linear infinite; font-family: monospace; font-size: 0.8rem; }
+        @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
+    </style>
+</head>
+<body>
+
+<header>
+    <div style="font-size: 1.2rem; font-weight: 900;">ANKH <span style="color:var(--accent)">V8 PRO</span></div>
+    <div class="search-wrap">
+        <input type="text" id="sInput" placeholder="Add Ticker...">
+        <button onclick="refreshWatchlist()">REFRESH ALL</button>
+    </div>
+    <div id="clock" style="font-family: monospace;">00:00:00</div>
+</header>
+
+<main>
+    <div class="panel">
+        <h4 style="color:#555; font-size:0.6rem;">AI SENTIMENT</h4>
+        <div id="p-sym" style="color:var(--accent); font-weight:bold;">---</div>
+        <div id="p-score" style="font-size:2rem; font-weight:900;">--%</div>
+    </div>
+    <div class="panel">
+        <h4 style="color:#555; font-size:0.6rem;">MARKET WATCH</h4>
+        <div class="ticker-grid" id="watchlist-container"></div>
+    </div>
+    <div class="panel">
+        <h4 style="color:#555; font-size:0.6rem;">NEWS FEED</h4>
+        <div id="news-feed" style="font-size:0.7rem;">Syncing headlines...</div>
+    </div>
+</main>
+
+<div class="ticker-bar">
+    <div class="ticker-text">S&P 500: 5,204.34 | NASDAQ: 16,332.22 | BTC: $69,420 | GOLD: $2,329.10 | OIL: $86.91</div>
+</div>
+
+<script>
+    const API_KEY = 'cot4gfhr01qgmopn3vag';
+    let watchlist = ['AG','ATAI','APLE','BBD','BSBR','CIG','DVYA','DVYE','ELP','EQIX','F','HL','ITUB','KGC','LB','MAIN','NGD','NMG','PBR','PFF','PHO','REGI','SAN','SLG','TU','VEU','VNQ','WRN','XOM','XLE'];
+
+    async function init() {
+        render();
+        await refreshWatchlist();
+        updateNews();
+        setInterval(() => document.getElementById('clock').innerText = new Date().toLocaleTimeString(), 1000);
+        setInterval(refreshWatchlist, 120000); // Auto-refresh every 2 minutes
+    }
+
+    function render() {
+        document.getElementById('watchlist-container').innerHTML = watchlist.map(s => {
+            const id = s.replace(/[^a-z0-9]/gi, '_');
+            return `<div class="ticker-card" onclick="analyze('${s}')">
+                <div class="sym">${s}</div>
+                <div class="price" id="prc-${id}">SYNCING...</div>
+                <div id="chg-${id}" style="font-size:0.6rem;">--</div>
+            </div>`;
+        }).join('');
+    }
+
+    // STAGGERED REFRESH TO PREVENT API LOCKOUT
+    async function refreshWatchlist() {
+        for (let s of watchlist) {
+            const id = s.replace(/[^a-z0-9]/gi, '_');
+            try {
+                const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${s}&token=${API_KEY}`).then(r => r.json());
+                const price = res.c || res.pc; // Use current or previous close
+                if (price) {
+                    document.getElementById(`prc-${id}`).innerText = price.toFixed(2);
+                    const diff = (price - res.pc).toFixed(2);
+                    document.getElementById(`chg-${id}`).innerText = `${diff >= 0 ? '+' : ''}${diff} (${res.dp.toFixed(2)}%)`;
+                    document.getElementById(`chg-${id}`).className = diff >= 0 ? 'up' : 'down';
+                }
+                await new Promise(r => setTimeout(r, 150)); // 150ms delay between tickers
+            } catch (e) { console.error(s, e); }
+        }
+    }
+
+    async function analyze(s) {
+        document.getElementById('p-sym').innerText = `SCANNING ${s}`;
+        const res = await fetch(`https://finnhub.io/api/v1/stock/recommendation?symbol=${s}&token=${API_KEY}`).then(r => r.json());
+        if (res && res.length > 0) {
+            const l = res[0];
+            const score = (((l.strongBuy + l.buy) / (l.strongBuy + l.buy + l.hold + l.sell + l.strongSell)) * 100).toFixed(1);
+            document.getElementById('p-score').innerText = score + "%";
+        }
+    }
+
+    async function updateNews() {
+        const res = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${API_KEY}`).then(r => r.json());
+        document.getElementById('news-feed').innerHTML = res.slice(0,10).map(n => `
+            <div style="margin-bottom:8px; border-bottom:1px solid #1a1a1a; padding-bottom:4px; cursor:pointer" onclick="window.open('${n.url}')">
+                <b>${n.headline}</b>
+            </div>`).join('');
+    }
+
+    window.onload = init;
+</script>
+</body>
+</html>
